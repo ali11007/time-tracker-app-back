@@ -1,0 +1,25 @@
+{
+  "name": "time-tracker-app-back",
+  "version": "1.0.0",
+  "description": "Simple time tracker backend with manual and timer entries plus export support.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@mikro-orm/core": "^6.6.13",
+    "@mikro-orm/postgresql": "^6.6.13",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
+  }
+}
