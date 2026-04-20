@@ -13,14 +13,93 @@ const normalizeTags = (value) => {
   return [...new Set(value.map((tag) => String(tag).trim()).filter(Boolean))];
 };
 
-const timeEntrySchema = z.object({
+const isoDateTimeSchema = z.string().datetime({ offset: true, message: 'Datetime must be a valid ISO 8601 string with timezone.' });
+
+const baseTimeEntrySchema = {
   name: z.string().trim().min(1, 'Name is required.'),
   project: z.string().trim().min(1, 'Project is required.'),
   tags: z.array(z.string()).optional().default([]).transform(normalizeTags),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must use YYYY-MM-DD format.'),
-  durationSeconds: z.coerce.number().int().min(60, 'Duration must be at least 60 seconds.'),
   type: z.enum(['manual', 'timer']),
+};
+
+const manualTimeEntrySchema = z
+  .object({
+    ...baseTimeEntrySchema,
+    type: z.literal('manual'),
+    startAt: isoDateTimeSchema,
+    endAt: isoDateTimeSchema,
+  })
+  .superRefine((value, ctx) => {
+    const startAt = Date.parse(value.startAt);
+    const endAt = Date.parse(value.endAt);
+
+    if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) {
+      return;
+    }
+
+    if (endAt <= startAt) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['endAt'],
+        message: 'End time must be after the start time.',
+      });
+    }
+
+    if (endAt - startAt < 60_000) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['endAt'],
+        message: 'Duration must be at least 1 minute.',
+      });
+    }
+  });
+
+const timerStartSchema = z.object({
+  name: z.string().trim().min(1, 'Name is required.'),
+  project: z.string().trim().min(1, 'Project is required.'),
+  tags: z.array(z.string()).optional().default([]).transform(normalizeTags),
 });
+
+const timeEntryUpdateSchema = z
+  .object({
+    ...baseTimeEntrySchema,
+    startAt: isoDateTimeSchema,
+    endAt: isoDateTimeSchema.nullable(),
+  })
+  .superRefine((value, ctx) => {
+    const startAt = Date.parse(value.startAt);
+    const endAt = value.endAt ? Date.parse(value.endAt) : null;
+
+    if (!Number.isFinite(startAt) || (value.endAt && !Number.isFinite(endAt))) {
+      return;
+    }
+
+    if (endAt !== null) {
+      if (endAt <= startAt) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['endAt'],
+          message: 'End time must be after the start time.',
+        });
+      }
+
+      if (endAt - startAt < 60_000) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['endAt'],
+          message: 'Duration must be at least 1 minute.',
+        });
+      }
+    }
+
+    if (value.type === 'manual' && value.endAt === null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['endAt'],
+        message: 'Manual entries must include an end time.',
+      });
+    }
+  });
 
 const exportQuerySchema = z.object({
   search: z.string().trim().optional().default(''),
@@ -28,7 +107,9 @@ const exportQuerySchema = z.object({
 
 module.exports = {
   loginSchema,
-  timeEntrySchema,
+  manualTimeEntrySchema,
+  timerStartSchema,
+  timeEntryUpdateSchema,
   exportQuerySchema,
   normalizeTags,
 };
