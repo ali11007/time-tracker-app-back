@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { normalizeName } = require('./catalog');
 
 const loginSchema = z.object({
   emailOrUsername: z.string().trim().min(1, 'Email or username is required.'),
@@ -10,14 +11,33 @@ const normalizeTags = (value) => {
     return [];
   }
 
-  return [...new Set(value.map((tag) => String(tag).trim()).filter(Boolean))];
+  const normalized = [];
+  const seen = new Set();
+
+  for (const tag of value) {
+    const name = String(tag || '').trim();
+    const normalizedName = normalizeName(name);
+
+    if (!normalizedName || seen.has(normalizedName)) {
+      continue;
+    }
+
+    seen.add(normalizedName);
+    normalized.push(name);
+  }
+
+  return normalized;
 };
 
-const isoDateTimeSchema = z.string().datetime({ offset: true, message: 'Datetime must be a valid ISO 8601 string with timezone.' });
+const isoDateTimeSchema = z
+  .string()
+  .datetime({ offset: true, message: 'Datetime must be a valid ISO 8601 string with timezone.' });
+
+const uuidSchema = z.string().uuid('Please provide a valid id.');
 
 const baseTimeEntrySchema = {
   name: z.string().trim().min(1, 'Name is required.'),
-  project: z.string().trim().min(1, 'Project is required.'),
+  projectId: uuidSchema,
   tags: z.array(z.string()).optional().default([]).transform(normalizeTags),
   type: z.enum(['manual', 'timer']),
 };
@@ -56,7 +76,7 @@ const manualTimeEntrySchema = z
 
 const timerStartSchema = z.object({
   name: z.string().trim().min(1, 'Name is required.'),
-  project: z.string().trim().min(1, 'Project is required.'),
+  projectId: uuidSchema,
   tags: z.array(z.string()).optional().default([]).transform(normalizeTags),
 });
 
@@ -105,6 +125,28 @@ const exportQuerySchema = z.object({
   search: z.string().trim().optional().default(''),
 });
 
+const catalogNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Name is required.')
+  .max(80, 'Name must be 80 characters or fewer.');
+
+const createProjectSchema = z.object({
+  name: catalogNameSchema,
+});
+
+const updateProjectSchema = z.object({
+  name: catalogNameSchema,
+});
+
+const createTagSchema = z.object({
+  name: catalogNameSchema,
+});
+
+const updateTagSchema = z.object({
+  name: catalogNameSchema,
+});
+
 module.exports = {
   loginSchema,
   manualTimeEntrySchema,
@@ -112,4 +154,8 @@ module.exports = {
   timeEntryUpdateSchema,
   exportQuerySchema,
   normalizeTags,
+  createProjectSchema,
+  updateProjectSchema,
+  createTagSchema,
+  updateTagSchema,
 };

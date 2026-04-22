@@ -27,7 +27,8 @@ const mapTimeEntry = (row) => {
   return {
     id: String(row.id),
     name: row.name,
-    project: row.project,
+    projectId: row.project_id,
+    project: row.project_name || row.project,
     tags: Array.isArray(row.tags) ? row.tags : [],
     date: startAt ? startAt.toISOString().slice(0, 10) : null,
     startAt: startAt ? startAt.toISOString() : null,
@@ -40,7 +41,23 @@ const mapTimeEntry = (row) => {
   };
 };
 
+const mapProject = (row) => ({
+  id: row.id,
+  name: row.name,
+  createdAt: new Date(row.created_at).toISOString(),
+  updatedAt: new Date(row.updated_at).toISOString(),
+});
+
+const mapTag = (row) => ({
+  id: row.id,
+  name: row.name,
+  createdAt: new Date(row.created_at).toISOString(),
+  updatedAt: new Date(row.updated_at).toISOString(),
+});
+
 module.exports = {
   mapUser,
   mapTimeEntry,
+  mapProject,
+  mapTag,
 };

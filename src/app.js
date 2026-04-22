@@ -3,6 +3,8 @@ const cors = require('cors');
 const { env } = require('./config/env');
 const { authRoutes } = require('./routes/authRoutes');
 const { timeEntryRoutes } = require('./routes/timeEntryRoutes');
+const { projectRoutes } = require('./routes/projectRoutes');
+const { tagRoutes } = require('./routes/tagRoutes');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const createApp = () => {
@@ -21,6 +23,8 @@ const createApp = () => {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/time-entries', timeEntryRoutes);
+  app.use('/api/projects', projectRoutes);
+  app.use('/api/tags', tagRoutes);
 
   app.use((_req, res) => {
     res.status(404).json({ message: 'Route not found.' });
