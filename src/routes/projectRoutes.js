@@ -17,10 +17,8 @@ router.get('/', async (req, res, next) => {
       `
         SELECT id, name, created_at, updated_at
         FROM projects
-        WHERE user_id = $1
         ORDER BY LOWER(name) ASC, created_at DESC
       `,
-      [req.auth.userId],
     );
 
     res.json(rows.map(mapProject));
@@ -36,18 +34,18 @@ router.post('/', async (req, res, next) => {
 
     const { rows } = await pool.query(
       `
-        INSERT INTO projects (id, user_id, name, normalized_name)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (user_id, normalized_name)
+        INSERT INTO projects (id, name, normalized_name)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (normalized_name)
         DO UPDATE SET
           name = EXCLUDED.name,
           updated_at = NOW()
         RETURNING id, name, created_at, updated_at
       `,
-      [createCatalogId(), req.auth.userId, payload.name.trim(), normalizedName],
+      [createCatalogId(), payload.name.trim(), normalizedName],
     );
 
-    await refreshProjectSnapshots(req.auth.userId, rows[0].id, rows[0].name);
+    await refreshProjectSnapshots(rows[0].id, rows[0].name);
     res.status(201).json(mapProject(rows[0]));
   } catch (error) {
     next(error);
@@ -63,10 +61,10 @@ router.put('/:id', async (req, res, next) => {
       `
         SELECT id
         FROM projects
-        WHERE user_id = $1 AND normalized_name = $2 AND id <> $3
+        WHERE normalized_name = $1 AND id <> $2
         LIMIT 1
       `,
-      [req.auth.userId, normalizedName, req.params.id],
+      [normalizedName, req.params.id],
     );
 
     if (existing.rowCount) {
@@ -76,18 +74,18 @@ router.put('/:id', async (req, res, next) => {
     const { rows } = await pool.query(
       `
         UPDATE projects
-        SET name = $3, normalized_name = $4, updated_at = NOW()
-        WHERE id = $1 AND user_id = $2
+        SET name = $2, normalized_name = $3, updated_at = NOW()
+        WHERE id = $1
         RETURNING id, name, created_at, updated_at
       `,
-      [req.params.id, req.auth.userId, payload.name.trim(), normalizedName],
+      [req.params.id, payload.name.trim(), normalizedName],
     );
 
     if (!rows[0]) {
       throw new HttpError(404, 'Project not found.');
     }
 
-    await refreshProjectSnapshots(req.auth.userId, rows[0].id, rows[0].name);
+    await refreshProjectSnapshots(rows[0].id, rows[0].name);
     res.json(mapProject(rows[0]));
   } catch (error) {
     next(error);
@@ -96,19 +94,13 @@ router.put('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    const usage = await pool.query(
-      'SELECT 1 FROM time_entries WHERE user_id = $1 AND project_id = $2 LIMIT 1',
-      [req.auth.userId, req.params.id],
-    );
+    const usage = await pool.query('SELECT 1 FROM time_entries WHERE project_id = $1 LIMIT 1', [req.params.id]);
 
     if (usage.rowCount) {
       throw new HttpError(409, 'This project is still used by existing time entries.');
     }
 
-    const { rowCount } = await pool.query(
-      'DELETE FROM projects WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.auth.userId],
-    );
+    const { rowCount } = await pool.query('DELETE FROM projects WHERE id = $1', [req.params.id]);
 
     if (!rowCount) {
       throw new HttpError(404, 'Project not found.');

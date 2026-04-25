@@ -74,8 +74,8 @@ const buildEntrySearchClause = (search, values, userId) => {
 };
 
 const insertManualEntry = async (userId, payload) => {
-  const project = await resolveProjectOrThrow(userId, payload.projectId);
-  const tags = await ensureTagsExist(userId, payload.tags);
+  const project = await resolveProjectOrThrow(payload.projectId);
+  const tags = await ensureTagsExist(payload.tags);
   const entryId = createTimeEntryId();
 
   await pool.query(
@@ -130,8 +130,8 @@ router.post('/manual', async (req, res, next) => {
 router.post('/timer/start', async (req, res, next) => {
   try {
     const entry = timerStartSchema.parse(req.body);
-    const project = await resolveProjectOrThrow(req.auth.userId, entry.projectId);
-    const tags = await ensureTagsExist(req.auth.userId, entry.tags);
+    const project = await resolveProjectOrThrow(entry.projectId);
+    const tags = await ensureTagsExist(entry.tags);
 
     const activeEntry = await pool.query(
       'SELECT id FROM time_entries WHERE user_id = $1 AND end_at IS NULL LIMIT 1',
@@ -201,8 +201,8 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const entry = timeEntryUpdateSchema.parse(req.body);
-    const project = await resolveProjectOrThrow(req.auth.userId, entry.projectId);
-    const tags = await ensureTagsExist(req.auth.userId, entry.tags);
+    const project = await resolveProjectOrThrow(entry.projectId);
+    const tags = await ensureTagsExist(entry.tags);
     const { rows } = await pool.query(
       `
         UPDATE time_entries

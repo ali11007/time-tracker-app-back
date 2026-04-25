@@ -17,10 +17,8 @@ router.get('/', async (req, res, next) => {
       `
         SELECT id, name, created_at, updated_at
         FROM tags
-        WHERE user_id = $1
         ORDER BY LOWER(name) ASC, created_at DESC
       `,
-      [req.auth.userId],
     );
 
     res.json(rows.map(mapTag));
@@ -36,15 +34,15 @@ router.post('/', async (req, res, next) => {
 
     const { rows } = await pool.query(
       `
-        INSERT INTO tags (id, user_id, name, normalized_name)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (user_id, normalized_name)
+        INSERT INTO tags (id, name, normalized_name)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (normalized_name)
         DO UPDATE SET
           name = EXCLUDED.name,
           updated_at = NOW()
         RETURNING id, name, created_at, updated_at
       `,
-      [createCatalogId(), req.auth.userId, payload.name.trim(), normalizedName],
+      [createCatalogId(), payload.name.trim(), normalizedName],
     );
 
     res.status(201).json(mapTag(rows[0]));
@@ -62,10 +60,10 @@ router.put('/:id', async (req, res, next) => {
       `
         SELECT id, normalized_name
         FROM tags
-        WHERE id = $1 AND user_id = $2
+        WHERE id = $1
         LIMIT 1
       `,
-      [req.params.id, req.auth.userId],
+      [req.params.id],
     );
 
     if (!currentTag.rows[0]) {
@@ -76,10 +74,10 @@ router.put('/:id', async (req, res, next) => {
       `
         SELECT 1
         FROM tags
-        WHERE user_id = $1 AND normalized_name = $2 AND id <> $3
+        WHERE normalized_name = $1 AND id <> $2
         LIMIT 1
       `,
-      [req.auth.userId, normalizedName, req.params.id],
+      [normalizedName, req.params.id],
     );
 
     if (existing.rowCount) {
@@ -89,14 +87,14 @@ router.put('/:id', async (req, res, next) => {
     const { rows } = await pool.query(
       `
         UPDATE tags
-        SET name = $3, normalized_name = $4, updated_at = NOW()
-        WHERE id = $1 AND user_id = $2
+        SET name = $2, normalized_name = $3, updated_at = NOW()
+        WHERE id = $1
         RETURNING id, name, created_at, updated_at
       `,
-      [req.params.id, req.auth.userId, payload.name.trim(), normalizedName],
+      [req.params.id, payload.name.trim(), normalizedName],
     );
 
-    await renameTagReferences(req.auth.userId, currentTag.rows[0].normalized_name, rows[0].name);
+    await renameTagReferences(currentTag.rows[0].normalized_name, rows[0].name);
     res.json(mapTag(rows[0]));
   } catch (error) {
     next(error);
@@ -108,17 +106,17 @@ router.delete('/:id', async (req, res, next) => {
     const deleted = await pool.query(
       `
         DELETE FROM tags
-        WHERE id = $1 AND user_id = $2
+        WHERE id = $1
         RETURNING normalized_name
       `,
-      [req.params.id, req.auth.userId],
+      [req.params.id],
     );
 
     if (!deleted.rows[0]) {
       throw new HttpError(404, 'Tag not found.');
     }
 
-    await deleteTagReferences(req.auth.userId, deleted.rows[0].normalized_name);
+    await deleteTagReferences(deleted.rows[0].normalized_name);
     res.json({ success: true });
   } catch (error) {
     next(error);

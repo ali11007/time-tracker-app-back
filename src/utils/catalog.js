@@ -10,7 +10,7 @@ const mapRowsByNormalizedName = (rows) =>
     return accumulator;
   }, {});
 
-const ensureTagsExist = async (userId, tags) => {
+const ensureTagsExist = async (tags) => {
   if (!Array.isArray(tags) || !tags.length) {
     return [];
   }
@@ -37,17 +37,17 @@ const ensureTagsExist = async (userId, tags) => {
   const values = [];
   const placeholders = uniqueTags
     .map((tag, index) => {
-      const offset = index * 4;
-      values.push(tag.id, userId, tag.name, tag.normalizedName);
-      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`;
+      const offset = index * 3;
+      values.push(tag.id, tag.name, tag.normalizedName);
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3})`;
     })
     .join(', ');
 
   await pool.query(
     `
-      INSERT INTO tags (id, user_id, name, normalized_name)
+      INSERT INTO tags (id, name, normalized_name)
       VALUES ${placeholders}
-      ON CONFLICT (user_id, normalized_name)
+      ON CONFLICT (normalized_name)
       DO UPDATE SET
         name = EXCLUDED.name,
         updated_at = NOW()
@@ -58,15 +58,15 @@ const ensureTagsExist = async (userId, tags) => {
   return uniqueTags.map((tag) => tag.name);
 };
 
-const resolveProjectOrThrow = async (userId, projectId) => {
+const resolveProjectOrThrow = async (projectId) => {
   const { rows } = await pool.query(
     `
       SELECT id, name, normalized_name
       FROM projects
-      WHERE id = $1 AND user_id = $2
+      WHERE id = $1
       LIMIT 1
     `,
-    [projectId, userId],
+    [projectId],
   );
 
   if (!rows[0]) {
@@ -76,7 +76,7 @@ const resolveProjectOrThrow = async (userId, projectId) => {
   return rows[0];
 };
 
-const renameTagReferences = async (userId, previousNormalizedName, nextName) => {
+const renameTagReferences = async (previousNormalizedName, nextName) => {
   await pool.query(
     `
       UPDATE time_entries te
@@ -88,28 +88,26 @@ const renameTagReferences = async (userId, previousNormalizedName, nextName) => 
           id,
           jsonb_agg(
             CASE
-              WHEN LOWER(tag.value) = $2 THEN to_jsonb($3::text)
+              WHEN LOWER(tag.value) = $1 THEN to_jsonb($2::text)
               ELSE to_jsonb(tag.value)
             END
           ) AS tags
         FROM time_entries
         CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb)) AS tag(value)
-        WHERE user_id = $1
         GROUP BY id
       ) AS updated_tags
       WHERE te.id = updated_tags.id
-        AND te.user_id = $1
         AND EXISTS (
           SELECT 1
           FROM jsonb_array_elements_text(COALESCE(te.tags, '[]'::jsonb)) AS existing_tag(value)
-          WHERE LOWER(existing_tag.value) = $2
+          WHERE LOWER(existing_tag.value) = $1
         )
     `,
-    [userId, previousNormalizedName, nextName],
+    [previousNormalizedName, nextName],
   );
 };
 
-const deleteTagReferences = async (userId, normalizedName) => {
+const deleteTagReferences = async (normalizedName) => {
   await pool.query(
     `
       UPDATE time_entries te
@@ -119,32 +117,30 @@ const deleteTagReferences = async (userId, normalizedName) => {
       FROM (
         SELECT
           id,
-          jsonb_agg(to_jsonb(tag.value)) FILTER (WHERE LOWER(tag.value) <> $2) AS tags
+          jsonb_agg(to_jsonb(tag.value)) FILTER (WHERE LOWER(tag.value) <> $1) AS tags
         FROM time_entries
         CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(tags, '[]'::jsonb)) AS tag(value)
-        WHERE user_id = $1
         GROUP BY id
       ) AS updated_tags
       WHERE te.id = updated_tags.id
-        AND te.user_id = $1
         AND EXISTS (
           SELECT 1
           FROM jsonb_array_elements_text(COALESCE(te.tags, '[]'::jsonb)) AS existing_tag(value)
-          WHERE LOWER(existing_tag.value) = $2
+          WHERE LOWER(existing_tag.value) = $1
         )
     `,
-    [userId, normalizedName],
+    [normalizedName],
   );
 };
 
-const refreshProjectSnapshots = async (userId, projectId, projectName) => {
+const refreshProjectSnapshots = async (projectId, projectName) => {
   await pool.query(
     `
       UPDATE time_entries
-      SET project = $3, updated_at = NOW()
-      WHERE user_id = $1 AND project_id = $2
+      SET project = $2, updated_at = NOW()
+      WHERE project_id = $1
     `,
-    [userId, projectId, projectName],
+    [projectId, projectName],
   );
 };
 
