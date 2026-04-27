@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const { pool } = require('./pool');
 const { env } = require('../config/env');
@@ -11,10 +13,49 @@ const ensureUsersTable = async () => {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       name TEXT NOT NULL,
+      is_admin BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+};
+
+const ensureSchemaMigrationsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+};
+
+const runMigrations = async () => {
+  await ensureSchemaMigrationsTable();
+
+  const migrationsDir = path.join(__dirname, 'migrations');
+  const migrationFiles = (await fs.readdir(migrationsDir))
+    .filter((fileName) => fileName.endsWith('.sql'))
+    .sort();
+
+  for (const fileName of migrationFiles) {
+    const version = fileName.replace(/\.sql$/, '');
+
+    await pool.query('BEGIN');
+    try {
+      const applied = await pool.query('SELECT 1 FROM schema_migrations WHERE version = $1 LIMIT 1', [version]);
+
+      if (!applied.rowCount) {
+        const sql = await fs.readFile(path.join(migrationsDir, fileName), 'utf8');
+        await pool.query(sql);
+        await pool.query('INSERT INTO schema_migrations (version) VALUES ($1)', [version]);
+      }
+
+      await pool.query('COMMIT');
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+  }
 };
 
 const ensureProjectsTable = async () => {
@@ -296,6 +337,7 @@ const ensureTimeEntryIndexes = async () => {
 const createTables = async () => {
   await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
   await ensureUsersTable();
+  await runMigrations();
   await ensureProjectsTable();
   await ensureTagsTable();
   await ensureTimeEntriesTable();

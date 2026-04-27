@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db/pool');
-const { authenticate } = require('../middleware/authenticate');
+const { authenticate, requireAdmin } = require('../middleware/authenticate');
 const { HttpError } = require('../utils/httpError');
 const { mapTag } = require('../utils/serializers');
 const { createTagSchema, updateTagSchema } = require('../utils/validators');
@@ -27,7 +27,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', requireAdmin, async (req, res, next) => {
   try {
     const payload = createTagSchema.parse(req.body);
     const normalizedName = normalizeName(payload.name);
@@ -51,7 +51,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', requireAdmin, async (req, res, next) => {
   try {
     const payload = updateTagSchema.parse(req.body);
     const normalizedName = normalizeName(payload.name);
@@ -101,7 +101,7 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
     const deleted = await pool.query(
       `

@@ -7,9 +7,24 @@ const escapeCsv = (value) => {
   return text;
 };
 
-const buildCsv = (entries) => {
-  const header = ['name', 'project', 'tags', 'date', 'startAt', 'endAt', 'durationSeconds', 'type', 'isActive'];
+const buildCsv = (entries, { includeUsers = false } = {}) => {
+  const hasUsers = includeUsers || entries.some((entry) => entry.user);
+  const header = [
+    ...(hasUsers ? ['userId', 'userEmail', 'username', 'userName'] : []),
+    'name',
+    'project',
+    'tags',
+    'date',
+    'startAt',
+    'endAt',
+    'durationSeconds',
+    'type',
+    'isActive',
+  ];
   const rows = entries.map((entry) => [
+    ...(hasUsers
+      ? [entry.user?.id, entry.user?.email, entry.user?.username, entry.user?.name]
+      : []),
     entry.name,
     entry.project,
     Array.isArray(entry.tags) ? entry.tags.join(', ') : '',

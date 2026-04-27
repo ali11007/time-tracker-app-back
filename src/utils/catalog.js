@@ -10,7 +10,7 @@ const mapRowsByNormalizedName = (rows) =>
     return accumulator;
   }, {});
 
-const ensureTagsExist = async (tags) => {
+const ensureTagsExist = async (tags, { canCreate = false } = {}) => {
   if (!Array.isArray(tags) || !tags.length) {
     return [];
   }
@@ -34,28 +34,46 @@ const ensureTagsExist = async (tags) => {
     return [];
   }
 
-  const values = [];
-  const placeholders = uniqueTags
-    .map((tag, index) => {
-      const offset = index * 3;
-      values.push(tag.id, tag.name, tag.normalizedName);
-      return `($${offset + 1}, $${offset + 2}, $${offset + 3})`;
-    })
-    .join(', ');
-
-  await pool.query(
+  const normalizedNames = uniqueTags.map((tag) => tag.normalizedName);
+  const existing = await pool.query(
     `
-      INSERT INTO tags (id, name, normalized_name)
-      VALUES ${placeholders}
-      ON CONFLICT (normalized_name)
-      DO UPDATE SET
-        name = EXCLUDED.name,
-        updated_at = NOW()
+      SELECT name, normalized_name
+      FROM tags
+      WHERE normalized_name = ANY($1::text[])
     `,
-    values,
+    [normalizedNames],
   );
+  const existingByName = mapRowsByNormalizedName(existing.rows);
+  const missingTags = uniqueTags.filter((tag) => !existingByName[tag.normalizedName]);
 
-  return uniqueTags.map((tag) => tag.name);
+  if (missingTags.length && !canCreate) {
+    throw new HttpError(403, 'Only admins can add tags. Pick from the saved tag list.');
+  }
+
+  if (missingTags.length) {
+    const values = [];
+    const placeholders = missingTags
+      .map((tag, index) => {
+        const offset = index * 3;
+        values.push(tag.id, tag.name, tag.normalizedName);
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3})`;
+      })
+      .join(', ');
+
+    await pool.query(
+      `
+        INSERT INTO tags (id, name, normalized_name)
+        VALUES ${placeholders}
+        ON CONFLICT (normalized_name)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          updated_at = NOW()
+      `,
+      values,
+    );
+  }
+
+  return uniqueTags.map((tag) => existingByName[tag.normalizedName]?.name || tag.name);
 };
 
 const resolveProjectOrThrow = async (projectId) => {

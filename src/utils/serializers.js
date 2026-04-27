@@ -18,6 +18,7 @@ const mapUser = (row) => ({
   email: row.email,
   username: row.username,
   name: row.name,
+  isAdmin: Boolean(row.is_admin),
 });
 
 const mapTimeEntry = (row) => {
@@ -36,6 +37,14 @@ const mapTimeEntry = (row) => {
     durationSeconds: calculateDurationSeconds(row),
     type: row.type,
     isActive: !endAt,
+    user: row.include_user && row.user_id
+      ? {
+          id: String(row.user_id),
+          email: row.user_email || null,
+          username: row.user_username || null,
+          name: row.user_name || null,
+        }
+      : undefined,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };

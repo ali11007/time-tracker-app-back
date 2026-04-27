@@ -19,6 +19,10 @@ router.use(authenticate);
 
 const selectFields = `
   te.id,
+  te.user_id,
+  u.email AS user_email,
+  u.username AS user_username,
+  u.name AS user_name,
   te.name,
   te.project,
   te.project_id,
@@ -34,6 +38,7 @@ const selectFields = `
 const selectFromClause = `
   FROM time_entries te
   JOIN projects p ON p.id = te.project_id
+  JOIN users u ON u.id = te.user_id
 `;
 
 const getEntryById = async (userId, entryId) => {
@@ -50,9 +55,13 @@ const getEntryById = async (userId, entryId) => {
   return rows[0] || null;
 };
 
-const buildEntrySearchClause = (search, values, userId) => {
-  const where = ['te.user_id = $1'];
-  values.push(userId);
+const buildEntrySearchClause = (search, values, userId = null) => {
+  const where = [];
+
+  if (userId !== null) {
+    values.push(userId);
+    where.push(`te.user_id = $${values.length}`);
+  }
 
   if (search) {
     values.push(`%${search.toLowerCase()}%`);
@@ -62,6 +71,9 @@ const buildEntrySearchClause = (search, values, userId) => {
       OR LOWER(COALESCE(p.name, te.project)) LIKE $${index}
       OR LOWER(te.start_at::text) LIKE $${index}
       OR LOWER(COALESCE(te.end_at::text, '')) LIKE $${index}
+      OR LOWER(u.email) LIKE $${index}
+      OR LOWER(u.username) LIKE $${index}
+      OR LOWER(u.name) LIKE $${index}
       OR EXISTS (
         SELECT 1
         FROM jsonb_array_elements_text(te.tags) AS tag
@@ -70,12 +82,12 @@ const buildEntrySearchClause = (search, values, userId) => {
     )`);
   }
 
-  return where.join(' AND ');
+  return where.length ? where.join(' AND ') : 'TRUE';
 };
 
-const insertManualEntry = async (userId, payload) => {
+const insertManualEntry = async (userId, payload, { canCreateTags = false } = {}) => {
   const project = await resolveProjectOrThrow(payload.projectId);
-  const tags = await ensureTagsExist(payload.tags);
+  const tags = await ensureTagsExist(payload.tags, { canCreate: canCreateTags });
   const entryId = createTimeEntryId();
 
   await pool.query(
@@ -120,7 +132,7 @@ router.get('/', async (req, res, next) => {
 router.post('/manual', async (req, res, next) => {
   try {
     const entry = manualTimeEntrySchema.parse(req.body);
-    const row = await insertManualEntry(req.auth.userId, entry);
+    const row = await insertManualEntry(req.auth.userId, entry, { canCreateTags: req.auth.isAdmin });
     res.status(201).json(mapTimeEntry(row));
   } catch (error) {
     next(error);
@@ -131,7 +143,7 @@ router.post('/timer/start', async (req, res, next) => {
   try {
     const entry = timerStartSchema.parse(req.body);
     const project = await resolveProjectOrThrow(entry.projectId);
-    const tags = await ensureTagsExist(entry.tags);
+    const tags = await ensureTagsExist(entry.tags, { canCreate: req.auth.isAdmin });
 
     const activeEntry = await pool.query(
       'SELECT id FROM time_entries WHERE user_id = $1 AND end_at IS NULL LIMIT 1',
@@ -191,7 +203,7 @@ router.post('/:id/stop', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const entry = manualTimeEntrySchema.parse(req.body);
-    const row = await insertManualEntry(req.auth.userId, entry);
+    const row = await insertManualEntry(req.auth.userId, entry, { canCreateTags: req.auth.isAdmin });
     res.status(201).json(mapTimeEntry(row));
   } catch (error) {
     next(error);
@@ -202,7 +214,7 @@ router.put('/:id', async (req, res, next) => {
   try {
     const entry = timeEntryUpdateSchema.parse(req.body);
     const project = await resolveProjectOrThrow(entry.projectId);
-    const tags = await ensureTagsExist(entry.tags);
+    const tags = await ensureTagsExist(entry.tags, { canCreate: req.auth.isAdmin });
     const { rows } = await pool.query(
       `
         UPDATE time_entries
@@ -262,10 +274,10 @@ router.get('/export/json', async (req, res, next) => {
   try {
     const { search } = exportQuerySchema.parse(req.query);
     const values = [];
-    const whereClause = buildEntrySearchClause(search, values, req.auth.userId);
+    const whereClause = buildEntrySearchClause(search, values, req.auth.isAdmin ? null : req.auth.userId);
     const { rows } = await pool.query(
       `
-        SELECT ${selectFields}
+        SELECT ${req.auth.isAdmin ? 'TRUE AS include_user,' : ''} ${selectFields}
         ${selectFromClause}
         WHERE ${whereClause}
         ORDER BY te.start_at DESC, te.created_at DESC
@@ -285,10 +297,10 @@ router.get('/export/csv', async (req, res, next) => {
   try {
     const { search } = exportQuerySchema.parse(req.query);
     const values = [];
-    const whereClause = buildEntrySearchClause(search, values, req.auth.userId);
+    const whereClause = buildEntrySearchClause(search, values, req.auth.isAdmin ? null : req.auth.userId);
     const { rows } = await pool.query(
       `
-        SELECT ${selectFields}
+        SELECT ${req.auth.isAdmin ? 'TRUE AS include_user,' : ''} ${selectFields}
         ${selectFromClause}
         WHERE ${whereClause}
         ORDER BY te.start_at DESC, te.created_at DESC
@@ -298,7 +310,7 @@ router.get('/export/csv', async (req, res, next) => {
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="time-entries.csv"');
-    res.send(buildCsv(rows.map(mapTimeEntry)));
+    res.send(buildCsv(rows.map(mapTimeEntry), { includeUsers: req.auth.isAdmin }));
   } catch (error) {
     next(error);
   }

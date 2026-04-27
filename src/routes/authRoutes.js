@@ -16,7 +16,7 @@ router.post('/login', async (req, res, next) => {
 
     const { rows } = await pool.query(
       `
-        SELECT id, email, username, password_hash, name
+        SELECT id, email, username, password_hash, name, is_admin
         FROM users
         WHERE email = $1 OR username = $1
         LIMIT 1
@@ -41,6 +41,7 @@ router.post('/login', async (req, res, next) => {
         email: user.email,
         username: user.username,
         name: user.name,
+        isAdmin: Boolean(user.is_admin),
       },
       env.jwtSecret,
       {
